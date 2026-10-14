@@ -468,6 +468,58 @@ void main() {
     }
   });
 
+  testWidgets('dock covers the Android bottom system inset', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = FakeViewPadding.zero;
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    final backdropFinder = find.byKey(const Key('main-dock-bottom-backdrop'));
+    final navigationFinder = find.byKey(const Key('main-dock-navigation'));
+    final backdropRect = tester.getRect(backdropFinder);
+    final navigationRect = tester.getRect(navigationFinder);
+
+    expect(backdropRect.bottom, 800);
+    expect(navigationRect.bottom, 800 - 48 - 10);
+
+    final backdrop = tester.widget<DecoratedBox>(backdropFinder);
+    final decoration = backdrop.decoration as BoxDecoration;
+    final gradient = decoration.gradient! as LinearGradient;
+    expect(gradient.colors.last, AppColors.background);
+  });
+
+  testWidgets('primary tabs respect iPhone safe areas', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 47, bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(top: 47, bottom: 34);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    final backdropFinder = find.byKey(const Key('main-dock-bottom-backdrop'));
+    final navigationFinder = find.byKey(const Key('main-dock-navigation'));
+
+    expect(tester.getRect(backdropFinder).bottom, 844);
+    expect(tester.getRect(navigationFinder).bottom, 844 - 34 - 10);
+
+    for (final tab in ['记忆', '整理', '服务', '小睿']) {
+      await tester.tap(find.byTooltip(tab));
+      await _pumpTransition(tester);
+      expect(tester.takeException(), isNull);
+      expect(tester.getRect(navigationFinder).bottom, 844 - 34 - 10);
+    }
+  });
+
   testWidgets('shared main header fits a compact mobile viewport', (
     tester,
   ) async {
@@ -669,7 +721,7 @@ void main() {
     expect(find.text('我的账号'), findsOneWidget);
     expect(find.text('版本信息'), findsOneWidget);
     expect(find.text('版本说明'), findsOneWidget);
-    expect(find.text('v1.0.0'), findsOneWidget);
+    expect(find.text('v1.0.1'), findsOneWidget);
     expect(find.text('帮助中心'), findsOneWidget);
     expect(find.text('使用文档'), findsOneWidget);
     expect(find.text('记忆卡硬件指南'), findsOneWidget);

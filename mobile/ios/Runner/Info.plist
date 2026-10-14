@@ -26,6 +26,11 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>用于扫描、连接和同步记忆卡设备。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
@@ -36,6 +41,8 @@
 	<string>用于拍摄照片并发送给智能助手。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于选择照片并发送给智能助手。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接机构在本地或内网部署的睿乐大脑服务。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于实时识别录音内容并生成记忆文本。</string>
 	<key>NSHumanReadableCopyright</key>

@@ -138,11 +138,14 @@ class JieliRecordingCardSdkBridge(
                 "connection",
                 mapOf(
                     "address" to device?.address.orEmpty(),
+                    "name" to device?.name.orEmpty(),
+                    "source" to "jieli_android",
                     "status" to status,
                     "rcsp_status" to status.toRcspConnectionStatus(),
                     "connecting" to (status == BluetoothConstant.CONNECT_STATE_CONNECTING),
                     "connected" to (status == BluetoothConstant.CONNECT_STATE_CONNECTED),
                     "disconnected" to (status == BluetoothConstant.CONNECT_STATE_DISCONNECT),
+                    "rcsp_ready" to rcspReady,
                 ),
             )
         }
@@ -516,6 +519,7 @@ class JieliRecordingCardSdkBridge(
                 "refresh_device_status",
                 "connection_state",
                 "record_state",
+                "record_audio_data",
                 "start_record",
                 "stop_record",
                 "list_storages",

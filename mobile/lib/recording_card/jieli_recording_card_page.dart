@@ -227,8 +227,47 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _recording) {
-      _maybeAutoOpenRecordingPage();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_syncNativeConnectionState());
+      if (_recording) {
+        _maybeAutoOpenRecordingPage();
+      }
+    }
+  }
+
+  Future<void> _syncNativeConnectionState() async {
+    try {
+      final connectionState = await _runtime.refreshConnectionState();
+      if (!mounted || !connectionState.connected) return;
+      final address = connectionState.address.trim();
+      if (address.isEmpty) return;
+      final rememberedDevice = _runtime.currentDevicePayload;
+      final device = _JieliDevice.fromPayload({
+        ...?rememberedDevice,
+        'address': address,
+        'name':
+            connectionState.name.trim().isEmpty
+                ? (rememberedDevice?['name'] ?? _officialJieliCardName)
+                : connectionState.name,
+        'source': rememberedDevice?['source'] ?? _jieliSdkSource,
+        'connectable': true,
+        'connect_protocol': rememberedDevice?['connect_protocol'] ?? 'ble',
+      });
+      setState(() {
+        _devices[address] = device;
+        _connectedAddress = address;
+        _connecting = false;
+        _connectingAddress = null;
+        _rcspReady = connectionState.rcspReady;
+        _scanning = false;
+        _error = null;
+        _message = _rcspReady ? '已连接 ${device.displayName}' : '已连接，等待 RCSP 初始化';
+      });
+      if (_rcspReady) {
+        unawaited(_refreshConnectedDevice());
+      }
+    } catch (_) {
+      // A transient native refresh failure must not clear the current UI state.
     }
   }
 
@@ -375,26 +414,28 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   }) async {
     if ((!fromInitialization && _initializing) || _connecting) return;
     if (!await _ensurePermissions()) return;
+    final effectiveMode =
+        Platform.isAndroid ? mode : JieliRecordingCardScanMode.ble;
     try {
       await _sdk.stopScan();
       if (!mounted) return;
       setState(() {
         _devices.clear();
         _autoConnectAttemptedAddresses.clear();
-        if (mode == JieliRecordingCardScanMode.ble) {
+        if (effectiveMode == JieliRecordingCardScanMode.ble) {
           _scanFallbackUsed = false;
         }
-        _activeScanMode = mode;
+        _activeScanMode = effectiveMode;
         _scanning = true;
         _error = null;
         _message =
-            mode == JieliRecordingCardScanMode.classic
+            effectiveMode == JieliRecordingCardScanMode.classic
                 ? '正在搜索经典蓝牙 X9'
                 : '正在搜索 X9';
       });
       final ok = await _sdk.startScan(
         timeout: const Duration(seconds: 30),
-        mode: mode,
+        mode: effectiveMode,
       );
       if (!ok && mounted) {
         setState(() {
@@ -2902,6 +2943,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           _scanning = scanning;
         });
         if (!scanning &&
+            Platform.isAndroid &&
             _activeScanMode == JieliRecordingCardScanMode.ble &&
             !_scanFallbackUsed &&
             _devices.isEmpty &&
@@ -2967,6 +3009,13 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           });
         } else if (payload['disconnected'] == true ||
             _readInt(payload, 'status', fallback: -1) == 10) {
+          final currentAddress = _connectedAddress ?? _connectingAddress ?? '';
+          if (!isCurrentJieliConnectionEvent(
+            eventAddress: address,
+            currentAddress: currentAddress,
+          )) {
+            break;
+          }
           setState(() {
             _connectedAddress = null;
             _connecting = false;
@@ -2995,6 +3044,40 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       case 'rcspReady':
         if (!mounted) return;
         final ready = payload['ready'] == true;
+        final address = payload['address']?.toString().trim() ?? '';
+        if (address.isNotEmpty &&
+            _connectedAddress != null &&
+            address != _connectedAddress) {
+          break;
+        }
+        if (ready &&
+            address.isNotEmpty &&
+            (_connectedAddress == null || _connectedAddress == address)) {
+          final remembered = _runtime.currentDevicePayload;
+          final device = _JieliDevice.fromPayload({
+            ...?remembered,
+            'address': address,
+            'name': remembered?['name'] ?? _officialJieliCardName,
+            'source': remembered?['source'] ?? _jieliSdkSource,
+            'connectable': true,
+            'connect_protocol': remembered?['connect_protocol'] ?? 'ble',
+          });
+          setState(() {
+            _devices[address] = device;
+            _connectedAddress = address;
+            _connecting = false;
+            _connectingAddress = null;
+            _scanning = false;
+            _rcspReady = true;
+            _message = '已连接 ${device.displayName}，RCSP 已就绪';
+          });
+          RecordingCardConnectionStatusBus.publish(
+            RecordingCardConnectionStatus(
+              connected: true,
+              deviceName: device.displayName,
+            ),
+          );
+        }
         setState(() {
           _rcspReady = ready;
           _message = ready ? 'RCSP 已就绪' : 'RCSP 未就绪';

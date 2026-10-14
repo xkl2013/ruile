@@ -6,6 +6,15 @@ import 'dart:io' show Platform;
 import 'jieli_recording_card_sdk.dart';
 import 'recording_card_support.dart';
 
+bool isCurrentJieliConnectionEvent({
+  required String eventAddress,
+  required String currentAddress,
+}) {
+  final event = eventAddress.trim();
+  final current = currentAddress.trim();
+  return event.isEmpty || current.isEmpty || event == current;
+}
+
 class JieliRecordingCardRuntime {
   JieliRecordingCardRuntime._() {
     _sdkEventSubscription = sdk.events.listen(
@@ -29,7 +38,7 @@ class JieliRecordingCardRuntime {
 
   // Keep the native event channel subscribed for the lifetime of the app.
   late final StreamSubscription<JieliRecordingCardSdkEvent>
-      _sdkEventSubscription;
+  _sdkEventSubscription;
 
   JieliRecordingCardConnectionState _connectionState =
       const JieliRecordingCardConnectionState(connected: false);
@@ -124,20 +133,27 @@ class JieliRecordingCardRuntime {
       final address = _asString(payload['address']);
       if (address.isEmpty) return _connectionState;
       await sdk.connect(address).timeout(connectTimeout);
-      final ready = await events.firstWhere((event) {
-        if (event.type != 'rcspReady' && event.type != 'connection') {
-          return false;
-        }
-        final eventAddress = _asString(event.payload['address']);
-        if (eventAddress.isNotEmpty && eventAddress != address) return false;
-        if (event.type == 'rcspReady') {
-          return _asBool(event.payload['ready']);
-        }
-        return _asBool(event.payload['connected']) &&
-            _asBool(event.payload['rcsp_ready']);
-      }).timeout(connectTimeout, onTimeout: () {
-        return const JieliRecordingCardSdkEvent(type: 'timeout');
-      });
+      final ready = await events
+          .firstWhere((event) {
+            if (event.type != 'rcspReady' && event.type != 'connection') {
+              return false;
+            }
+            final eventAddress = _asString(event.payload['address']);
+            if (eventAddress.isNotEmpty && eventAddress != address) {
+              return false;
+            }
+            if (event.type == 'rcspReady') {
+              return _asBool(event.payload['ready']);
+            }
+            return _asBool(event.payload['connected']) &&
+                _asBool(event.payload['rcsp_ready']);
+          })
+          .timeout(
+            connectTimeout,
+            onTimeout: () {
+              return const JieliRecordingCardSdkEvent(type: 'timeout');
+            },
+          );
       if (ready.type == 'timeout') return await refreshConnectionState();
       return await refreshConnectionState();
     } on TimeoutException {
@@ -161,6 +177,11 @@ class JieliRecordingCardRuntime {
           );
         }
         break;
+      case 'adapterStatus':
+        if (!_asBool(payload['enabled']) && _connectionState.connected) {
+          _setDisconnected();
+        }
+        break;
       case 'connection':
         final address = _asString(payload['address']);
         if (_asBool(payload['connected']) ||
@@ -173,17 +194,28 @@ class JieliRecordingCardRuntime {
           );
         } else if (_asBool(payload['disconnected']) ||
             _asInt(payload['status']) == 10) {
-          _setDisconnected();
+          final currentAddress = _connectionState.address;
+          if (isCurrentJieliConnectionEvent(
+            eventAddress: address,
+            currentAddress: currentAddress,
+          )) {
+            _setDisconnected();
+          }
         }
         break;
       case 'rcspReady':
         final address = _asString(payload['address']);
         final ready = _asBool(payload['ready']);
-        if (address.isNotEmpty && _connectionState.connected) {
+        if (address.isNotEmpty && ready) {
           _setConnected(
             address: address,
+            name: _asString(_devicePayloads[address]?['name']),
             rcspReady: ready,
           );
+        } else if (address.isNotEmpty &&
+            _connectionState.connected &&
+            address == _connectionState.address) {
+          _setConnected(address: address, rcspReady: ready);
         }
         break;
     }
@@ -207,9 +239,10 @@ class JieliRecordingCardRuntime {
     final normalizedAddress = address.trim();
     if (normalizedAddress.isEmpty) return;
     final existingName = _asString(_devicePayloads[normalizedAddress]?['name']);
-    final resolvedName = name.trim().isNotEmpty
-        ? name.trim()
-        : (existingName.isEmpty ? 'X9' : existingName);
+    final resolvedName =
+        name.trim().isNotEmpty
+            ? name.trim()
+            : (existingName.isEmpty ? 'X9' : existingName);
     final payload = <String, Object?>{
       ...?_devicePayloads[normalizedAddress],
       'address': normalizedAddress,
@@ -226,10 +259,7 @@ class JieliRecordingCardRuntime {
       rcspReady: rcspReady,
     );
     RecordingCardConnectionStatusBus.publish(
-      RecordingCardConnectionStatus(
-        connected: true,
-        deviceName: resolvedName,
-      ),
+      RecordingCardConnectionStatus(connected: true, deviceName: resolvedName),
     );
   }
 

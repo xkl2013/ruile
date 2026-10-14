@@ -30,7 +30,7 @@ var audioFormats = map[string]bool{
 }
 
 var videoFormats = map[string]bool{
-	"mp4": true, "mov": true, "avi": true, "mkv": true, "webm": true, "wmv": true, "flv": true,
+	"mp4": true, "mov": true, "m4v": true, "avi": true, "mkv": true, "webm": true, "wmv": true, "flv": true,
 }
 
 func init() {

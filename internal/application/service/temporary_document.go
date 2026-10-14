@@ -87,6 +87,7 @@ var temporaryDocumentExtensions = map[string]struct{}{
 	".md": {}, ".markdown": {}, ".txt": {}, ".csv": {}, ".json": {}, ".xml": {}, ".yaml": {}, ".yml": {}, ".log": {}, ".html": {},
 	".jpg": {}, ".jpeg": {}, ".png": {}, ".gif": {}, ".bmp": {}, ".tiff": {}, ".webp": {},
 	".mp3": {}, ".wav": {}, ".m4a": {}, ".flac": {}, ".ogg": {}, ".aac": {},
+	".mp4": {}, ".mov": {}, ".m4v": {}, ".avi": {}, ".mkv": {}, ".webm": {}, ".wmv": {}, ".flv": {},
 }
 
 var temporaryTextExtensions = map[string]struct{}{

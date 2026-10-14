@@ -235,7 +235,7 @@ func (p *AttachmentProcessor) processWithDocumentReader(
 	if p.documentReader == nil {
 		return fmt.Errorf("DocumentReader not configured")
 	}
-	
+
 	normalizedType := strings.TrimPrefix(fileType, ".")
 
 	result, err := p.documentReader.Read(ctx, &types.ReadRequest{
@@ -297,6 +297,8 @@ func isValidFileType(fileName string) bool {
 		"jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp",
 		// audio
 		"mp3", "wav", "m4a", "flac", "ogg", "aac",
+		// video
+		"mp4", "mov", "m4v", "avi", "mkv", "webm", "wmv", "flv",
 	}
 
 	for _, t := range supportedTypes {

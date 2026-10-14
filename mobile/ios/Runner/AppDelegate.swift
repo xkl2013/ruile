@@ -201,6 +201,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         "stop_record",
         "connection_state",
         "device_power",
+        "watch_system_left_size",
         "refresh_device_status",
         "list_storages",
         "browse_files",
@@ -335,6 +336,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         emitRcspReady(entity, ready: false, stage: "entity_disconnected_notification")
       }
     } else {
+      guard externalPeripheral == nil, activeEntity == nil else {
+        debugLog("ignore empty disconnected notification while external X9 is active")
+        return
+      }
       cancelReadFile()
       clearActiveDeleteTask()
       invalidateFlashSpaceRequest()
@@ -804,6 +809,14 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     externalConnectingUUID = uuid
     stopExternalScan()
     debugLog("external connect stage=\(stage) \(debugDescription(for: entity))")
+    emit(
+      "authStatus",
+      payload: [
+        "address": uuid,
+        "stage": "auth_start",
+        "ready": false,
+      ]
+    )
     emitConnection(entity, status: 2)
     central.connect(
       entity.mPeripheral,
@@ -2590,7 +2603,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         "vid": entity.mVID,
         "pid": entity.mPID,
         "edr": entity.mEdr,
+        "connectable": true,
+        "connect_protocol": "ble",
         "is_connected": isConnectedEntity(entity),
+        "rcsp_ready": rcspReady,
       ]
     )
   }
@@ -2600,8 +2616,13 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       "connection",
       payload: [
         "address": entityIdentifier(entity),
+        "name": entity.mItem,
+        "source": "jieli_ios",
         "status": status,
+        "rcsp_status": status,
+        "connecting": status == 2,
         "connected": status == 8,
+        "disconnected": status == 10,
         "rcsp_ready": rcspReady,
       ]
     )
@@ -2771,6 +2792,26 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       return
     }
     debugLog("external didDiscoverCharacteristics service=\(service.uuid.uuidString) count=\(service.characteristics?.count ?? 0) uuid=\(peripheral.identifier.uuidString)")
+    if service.characteristics?.contains(where: {
+      $0.uuid.uuidString.caseInsensitiveCompare("AE01") == .orderedSame
+    }) == true,
+       let sdkAssist = assist {
+      let maxWriteMtu = peripheral.maximumWriteValueLength(
+        for: .withoutResponse
+      )
+      sdkAssist.mMaxMtu = maxWriteMtu
+      // JL_Assist defaults to 40 bytes. Respect older iOS/device links whose
+      // negotiated write limit is smaller, while keeping the SDK default on
+      // larger links.
+      sdkAssist.mLimitMtu = min(
+        maxWriteMtu,
+        max(20, sdkAssist.mLimitMtu)
+      )
+      debugLog(
+        "external write mtu max=\(maxWriteMtu) limit=\(sdkAssist.mLimitMtu) "
+          + "uuid=\(peripheral.identifier.uuidString)"
+      )
+    }
     assist?.assistDiscoverCharacteristics(for: service, peripheral: peripheral)
   }
 
@@ -2800,9 +2841,26 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         self.debugLog("external assist pair paired=\(paired) uuid=\(peripheral.identifier.uuidString)")
         guard paired else {
           self.externalConnectingUUID = ""
+          self.emit(
+            "authStatus",
+            payload: [
+              "address": peripheral.identifier.uuidString,
+              "stage": "auth_failed",
+              "ready": false,
+              "message": "设备认证失败",
+            ]
+          )
           self.externalCentral?.cancelPeripheralConnection(peripheral)
           return
         }
+        self.emit(
+          "authStatus",
+          payload: [
+            "address": peripheral.identifier.uuidString,
+            "stage": "auth_success",
+            "ready": true,
+          ]
+        )
         self.externalPeripheral = peripheral
         self.completeExternalConnection(
           peripheral: peripheral,

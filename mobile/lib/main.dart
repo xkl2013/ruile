@@ -46,8 +46,13 @@ const bool _organizeUseMockData = bool.fromEnvironment(
   defaultValue: false,
 );
 
+const double _mainDockContentBottomPadding = 128;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -834,6 +839,31 @@ class _RuileApiClient {
     return text;
   }
 
+  Future<String> uploadAgentAttachment({
+    required String sessionId,
+    required String agentId,
+    required FileAttachment attachment,
+  }) async {
+    final encodedSessionId = Uri.encodeComponent(sessionId.trim());
+    final payload = await _postMultipart(
+      '/api/v1/sessions/$encodedSessionId/attachments',
+      fileName: attachment.name,
+      contentType: attachment.mimeType,
+      fileBytes: attachment.bytes,
+      fields: {'agent_id': agentId},
+    );
+    final data = _asMap(_unwrapData(payload));
+    final attachmentId = _readString(data, const [
+      'id',
+      'attachment_id',
+      'document_id',
+    ]);
+    if (attachmentId.isEmpty) {
+      throw const FormatException('附件上传响应缺少附件标识');
+    }
+    return attachmentId;
+  }
+
   Future<_BillingOverview> fetchBillingOverview() async {
     final payload = await _getJson('/api/v1/billing/overview');
     final root = _asMap(payload);
@@ -858,6 +888,17 @@ class _RuileApiClient {
   }) async* {
     final encodedSessionId = Uri.encodeComponent(sessionId.trim());
     final path = '/api/v1/agent-chat/$encodedSessionId';
+    final attachmentIDs = <String>[];
+    for (final attachment in attachments) {
+      if (attachment is! FileAttachment) continue;
+      attachmentIDs.add(
+        await uploadAgentAttachment(
+          sessionId: sessionId,
+          agentId: agentId,
+          attachment: attachment,
+        ),
+      );
+    }
     final request = await _httpClient
         .postUrl(_resolve(path))
         .timeout(const Duration(seconds: 12));
@@ -869,15 +910,6 @@ class _RuileApiClient {
         DateTime.now().microsecondsSinceEpoch.toRadixString(36),
       )
       ..contentType = ContentType.json;
-    final attachmentUploads = [
-      for (final attachment in attachments)
-        if (attachment is FileAttachment)
-          {
-            'data': base64Encode(attachment.bytes),
-            'file_name': attachment.name,
-            'file_size': attachment.bytes.length,
-          },
-    ];
     request.write(
       jsonEncode({
         'query': query,
@@ -885,8 +917,7 @@ class _RuileApiClient {
         'agent_id': agentId,
         'web_search_enabled': false,
         'channel': 'mobile',
-        if (attachmentUploads.isNotEmpty)
-          'attachment_uploads': attachmentUploads,
+        if (attachmentIDs.isNotEmpty) 'attachment_ids': attachmentIDs,
       }),
     );
 
@@ -2298,7 +2329,8 @@ class _RuileApiClient {
 
   Future<Object?> _postMultipart(
     String path, {
-    required String filePath,
+    String? filePath,
+    List<int>? fileBytes,
     required String fileName,
     required String contentType,
     required Map<String, String> fields,
@@ -2325,11 +2357,10 @@ class _RuileApiClient {
       );
     }
 
-    final file = File(filePath);
-    if (!await file.exists()) {
+    if (filePath == null && fileBytes == null) {
       throw _ApiException(
         HttpStatus.badRequest,
-        '音频文件不存在：$filePath',
+        '上传文件内容为空',
         uri: _resolve(path),
       );
     }
@@ -2341,7 +2372,19 @@ class _RuileApiClient {
         'Content-Type: ${contentType.isNotEmpty ? contentType : 'application/octet-stream'}\r\n\r\n',
       ),
     );
-    await request.addStream(file.openRead());
+    if (fileBytes != null) {
+      request.add(fileBytes);
+    } else {
+      final file = File(filePath!);
+      if (!await file.exists()) {
+        throw _ApiException(
+          HttpStatus.badRequest,
+          '上传文件不存在：$filePath',
+          uri: _resolve(path),
+        );
+      }
+      await request.addStream(file.openRead());
+    }
     request.add(utf8.encode('\r\n--$boundary--\r\n'));
 
     final response = await request.close().timeout(
@@ -3749,6 +3792,11 @@ class _MainShellState extends State<MainShell> {
             ),
           )
           .then((_) {
+            unawaited(
+              JieliRecordingCardRuntime.instance
+                  .refreshConnectionState()
+                  .then<void>((_) {}, onError: (_, __) {}),
+            );
             RecordingCardFileQueueBus.notifyChanged();
             RecordingCardAppSyncBus.notifyChanged();
           }),
@@ -5064,7 +5112,7 @@ class _UserSettingsPage extends StatelessWidget {
                       _UserSettingsRow(
                         icon: Icons.refresh,
                         title: '版本说明',
-                        trailingText: 'v1.0.0',
+                        trailingText: 'v1.0.1',
                       ),
                     ],
                   ),
@@ -5593,7 +5641,7 @@ class _AboutPage extends StatelessWidget {
                   const SizedBox(height: 14),
                   const _AboutInfoSection(
                     title: '产品信息',
-                    body: '版本：v1.0.0\n运营者：北京睿乐创科技有限公司',
+                    body: '版本：v1.0.1\n运营者：北京睿乐创科技有限公司',
                   ),
                 ],
               ),
@@ -6440,7 +6488,12 @@ class _OrganizePageState extends State<OrganizePage> {
                         onRefresh: () => _loadData(silent: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(18, 14, 18, 118),
+                          padding: const EdgeInsets.fromLTRB(
+                            18,
+                            14,
+                            18,
+                            _mainDockContentBottomPadding,
+                          ),
                           children: [
                             _OrganizeSectionHeader(
                               title: '今日整理',
@@ -9509,41 +9562,56 @@ class _MainDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset + 10),
-      child: Align(
-        alignment: Alignment.center,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Container(
-            key: const Key('main-dock-navigation'),
-            height: 70,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.surface.withValues(alpha: 0.96),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: const Color(0x12000000)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x18000000),
-                  blurRadius: 18,
-                  offset: Offset(0, 7),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                for (var index = 0; index < _destinations.length; index++)
-                  Expanded(
-                    child: _MainDockTabButton(
-                      destination: _destinations[index],
-                      selected: selectedIndex == index,
-                      onTap: () => onTabSelected(index),
-                    ),
+    return DecoratedBox(
+      key: const Key('main-dock-bottom-backdrop'),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppColors.background.withValues(alpha: 0),
+            AppColors.background,
+            AppColors.background,
+          ],
+          stops: const [0, 0.55, 1],
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset + 10),
+        child: Align(
+          alignment: Alignment.center,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Container(
+              key: const Key('main-dock-navigation'),
+              height: 70,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.96),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: const Color(0x12000000)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x18000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 7),
                   ),
-              ],
+                ],
+              ),
+              child: Row(
+                children: [
+                  for (var index = 0; index < _destinations.length; index++)
+                    Expanded(
+                      child: _MainDockTabButton(
+                        destination: _destinations[index],
+                        selected: selectedIndex == index,
+                        onTap: () => onTabSelected(index),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -10629,17 +10697,25 @@ class _NotesPageState extends State<NotesPage> {
         );
       }
       taskId = result.taskId.trim();
-      if (result.path.trim().isNotEmpty) {
+      // readFile returns as soon as the native task is accepted. Both
+      // Android and iOS write the file asynchronously, so the returned path
+      // is not a completion signal. Waiting for fileReadComplete keeps the
+      // faster Android path and the slower iOS BLE path consistent.
+      final completed = await completer.future.timeout(
+        const Duration(seconds: 90),
+      );
+      if ((completed['path']?.toString().trim() ?? '').isEmpty &&
+          result.path.trim().isNotEmpty) {
         return <String, Object?>{
+          ...completed,
           'path': result.path,
           'name': ref.file.name,
           'storage_index': ref.storage.index,
           'cluster': ref.file.cluster,
           'task_id': taskId,
-          'bytes': result.bytes,
         };
       }
-      return await completer.future.timeout(const Duration(seconds: 90));
+      return completed;
     } on TimeoutException {
       unawaited(runtime.sdk.cancelReadFile());
       throw StateError('${ref.file.name} 下载超时');
@@ -11427,7 +11503,12 @@ class _NotesPageState extends State<NotesPage> {
                     child: ListView(
                       controller: _notesScrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 128),
+                      padding: const EdgeInsets.fromLTRB(
+                        18,
+                        8,
+                        18,
+                        _mainDockContentBottomPadding,
+                      ),
                       children: [
                         _SectionHeader(
                           title: '知识库',
@@ -23611,6 +23692,14 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
                     },
                   ),
                   ListTile(
+                    leading: const Icon(Icons.video_library_outlined),
+                    title: const Text('选择视频'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_pickAgentVideo());
+                    },
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.attach_file_rounded),
                     title: const Text('选择文件'),
                     onTap: () {
@@ -23655,6 +23744,18 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
     }
   }
 
+  Future<void> _pickAgentVideo() async {
+    try {
+      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      if (file == null) return;
+      _addPendingAttachments([await FileAttachment.fromFile(file)]);
+    } catch (_) {
+      if (mounted) {
+        widget.onError(const FormatException('视频选择失败，请确认视频已下载到本机后重试'));
+      }
+    }
+  }
+
   Future<void> _pickAgentFiles() async {
     try {
       final files = await openFiles();
@@ -23669,7 +23770,7 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
   }
 
   void _addPendingAttachments(Iterable<Attachment> attachments) {
-    const maximumAttachmentBytes = 15 * 1024 * 1024;
+    const maximumAttachmentBytes = 50 * 1024 * 1024;
     const maximumAttachmentCount = 5;
     final remaining = maximumAttachmentCount - _pendingAttachments.length;
     final accepted =
@@ -23694,7 +23795,7 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           const SnackBar(
-            content: Text('最多添加 5 个附件，单个文件不能超过 15 MB'),
+            content: Text('最多添加 5 个附件，单个文件不能超过 50 MB'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -25315,7 +25416,12 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
                     child: ListView(
                       key: const Key('xiao-home-list'),
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 112),
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        4,
+                        16,
+                        _mainDockContentBottomPadding,
+                      ),
                       children: [
                         ValueListenableBuilder<int>(
                           valueListenable:
@@ -26218,7 +26324,12 @@ class _AssistantPageState extends State<AssistantPage> {
             Expanded(
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 124),
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  8,
+                  16,
+                  _mainDockContentBottomPadding,
+                ),
                 children: [
                   _ReminderMockCustomerStrip(
                     customers: _reminderMockCustomers,

@@ -268,3 +268,20 @@ func TestVisualDocumentQueryDetection(t *testing.T) {
 		t.Fatal("plain text query should not request visual context")
 	}
 }
+
+func TestTemporaryDocumentExtensionsIncludeVideoAttachments(t *testing.T) {
+	for _, extension := range []string{
+		".mp4",
+		".mov",
+		".m4v",
+		".avi",
+		".mkv",
+		".webm",
+		".wmv",
+		".flv",
+	} {
+		if _, ok := temporaryDocumentExtensions[extension]; !ok {
+			t.Errorf("temporaryDocumentExtensions missing %q", extension)
+		}
+	}
+}
