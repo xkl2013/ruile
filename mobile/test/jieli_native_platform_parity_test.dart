@@ -117,11 +117,77 @@ void main() {
       expect(androidSource, contains('"name" to device?.name.orEmpty()'));
       expect(androidSource, contains('"source" to "jieli_android"'));
       expect(androidSource, contains('"rcsp_ready" to rcspReady'));
-      expect(iosSource, contains('"name": entity.mItem'));
+      expect(iosSource, contains('"name": entityDisplayName(entity)'));
       expect(iosSource, contains('"source": "jieli_ios"'));
       expect(iosSource, contains('"rcsp_ready": rcspReady'));
     },
   );
+
+  test('iOS recording card transport is owned by the Jieli SDK', () {
+    final iosSource = iosBridge.readAsStringSync();
+
+    expect(iosSource, contains('let sdk = JL_BLEMultiple()'));
+    expect(iosSource, contains('sdk.ble_FILTER_ENABLE = false'));
+    expect(iosSource, contains('sdk.jl_BLE_SERVICE = "AE00"'));
+    expect(iosSource, contains('sdk.jl_BLE_RCSP_W = "AE01"'));
+    expect(iosSource, contains('sdk.jl_BLE_RCSP_R = "AE02"'));
+    expect(iosSource, contains('sdk.scanStart()'));
+    expect(iosSource, contains('ensureSdk().connectEntity(entity)'));
+    expect(iosSource, contains('ensureSdk().disconnectEntity(entity)'));
+    expect(iosSource, contains('forKeyPath: "bleAttDevices"'));
+    expect(iosSource, contains('sdk.getEntityWithSearchUUID('));
+    expect(iosSource, contains('sdk.makeEntity(withUUID: identifier)'));
+    expect(iosSource, contains('"gatt_over_br_edr"'));
+    expect(iosSource, isNot(contains('CBCentralManagerDelegate')));
+    expect(iosSource, isNot(contains('JL_Assist')));
+    expect(iosSource, isNot(contains('useExternalX9TransportOnly')));
+    expect(iosSource, isNot(contains('JL_EntityM()')));
+  });
+
+  test('iOS file sync follows the JL_FileManager state contract', () {
+    final iosSource = iosBridge.readAsStringSync();
+    final beginBrowse = _between(
+      iosSource,
+      'private func beginBrowse(',
+      'private func handleBrowseResult(',
+    );
+    final readFile = _between(
+      iosSource,
+      'private func readFile(',
+      'private func cancelReadFile(',
+    );
+
+    expect(iosSource, contains('code: "JIELI_RCSP_NOT_READY"'));
+    expect(
+      beginBrowse.indexOf('cmdBrowseMonitorResult'),
+      lessThan(beginBrowse.indexOf('cmdBrowseModel')),
+    );
+    expect(readFile, contains('cmdFileReadContent('));
+    expect(iosSource, contains('case .end:'));
+    expect(iosSource, contains('finishActiveRead(taskId: taskId, size: size)'));
+    expect(iosSource, contains('if progressValue >= 100'));
+    expect(iosSource, contains('scheduleReadCompletionFallback('));
+    expect(iosSource, contains('finish file read from 100% fallback'));
+    expect(iosSource, isNot(contains('actualBytes != expectedBytes')));
+    expect(iosSource, isNot(contains('synchronizeFile()')));
+  });
+
+  test('iOS file deletion never blocks the Flutter platform thread', () {
+    final iosSource = iosBridge.readAsStringSync();
+    final deleteFile = _between(
+      iosSource,
+      'private func deleteFile(',
+      'private func connectedEntity()',
+    );
+
+    expect(iosSource, contains('private let fileDeleteQueue = DispatchQueue('));
+    expect(deleteFile, contains('fileDeleteQueue.async'));
+    expect(deleteFile, contains('manager.mFileManager.cmdDelete('));
+    expect(
+      deleteFile.indexOf('fileDeleteQueue.async'),
+      lessThan(deleteFile.indexOf('manager.mFileManager.cmdDelete(')),
+    );
+  });
 
   test(
     'stale disconnect events cannot clear another memory card connection',
