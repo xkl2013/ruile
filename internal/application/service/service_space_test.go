@@ -841,6 +841,40 @@ func TestServiceFactProposalListPersistsAssistantMessage(t *testing.T) {
 	require.Equal(t, proposal.ID, items[0].ID)
 }
 
+func TestExtractProfileProposalItemsFromConfirmedAssistantSummary(t *testing.T) {
+	schema := []types.ServiceSpaceProfileField{
+		{Key: "child_age", Label: "孩子年龄", Source: "facts"},
+		{Key: "class_name", Label: "班级", Source: "facts"},
+	}
+
+	items := extractProfileProposalItems(
+		"更新档案\n\n用户确认写入的上一轮候选信息：\n孩子年龄：10岁\n班级：已从4班更新为7班",
+		schema,
+	)
+
+	require.Len(t, items, 2)
+	require.Equal(t, "child_age", items[0].FieldKey)
+	require.Equal(t, "10岁", items[0].Value)
+	require.Equal(t, "孩子年龄：10岁", items[0].Evidence)
+	require.Equal(t, "class_name", items[1].FieldKey)
+	require.Equal(t, "7班", items[1].Value)
+	require.Equal(t, "班级：已从4班更新为7班", items[1].Evidence)
+}
+
+func TestExtractProfileProposalItemsIgnoresSuggestedEmptyFields(t *testing.T) {
+	schema := []types.ServiceSpaceProfileField{
+		{Key: "child_name", Label: "孩子姓名", Source: "facts"},
+		{Key: "teacher", Label: "主班老师", Source: "facts"},
+	}
+
+	items := extractProfileProposalItems(
+		"还需要补充的信息，例如：\n- 孩子姓名\n- 主班老师",
+		schema,
+	)
+
+	require.Empty(t, items)
+}
+
 func TestServiceFactsSupersedeConflictsAndRespectGovernance(t *testing.T) {
 	ctx := context.Background()
 	db := newAgentRunTestDB(t)

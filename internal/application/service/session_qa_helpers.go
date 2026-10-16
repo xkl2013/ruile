@@ -10,6 +10,8 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
+const serviceFactConfirmationInstruction = `服务档案写入由系统的待确认提案完成。你不能直接修改服务档案，也不能在待确认提案生成并由用户确认前声称“档案已更新”或“更新完成”。当用户要求更新档案时，应清楚列出候选字段和值，并说明需要在系统确认卡中确认后才会正式写入。`
+
 // ---------------------------------------------------------------------------
 // Shared QA helpers: KB resolution, model resolution, retrieval tenant
 // ---------------------------------------------------------------------------
@@ -72,7 +74,9 @@ func (s *sessionService) applyServiceRuntimeContext(
 	if len(req.KnowledgeBaseIDs) == 0 && len(req.KnowledgeIDs) == 0 && len(req.TagScopes) == 0 {
 		req.KnowledgeBaseIDs = append([]string(nil), runtimeContext.KnowledgeBaseIDs...)
 	}
-	req.ServiceRuntimeInstruction = strings.TrimSpace(runtimeContext.Instruction)
+	req.ServiceRuntimeInstruction = strings.TrimSpace(
+		strings.TrimSpace(runtimeContext.Instruction) + "\n\n" + serviceFactConfirmationInstruction,
+	)
 	if serviceContext, readErr := s.serviceSpace.ReadMarkdownContext(
 		ctx,
 		req.Session.TenantID,

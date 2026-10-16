@@ -49,6 +49,8 @@ func TestApplyServiceRuntimeContextLoadsImportedOrganizeSources(t *testing.T) {
 	require.NoError(t, svc.applyServiceRuntimeContext(ctx, req))
 	require.Contains(t, req.ServiceRuntimeContext, "会员已确认下月续费")
 	require.NotEmpty(t, req.ServiceRuntimeContextHash)
+	require.Contains(t, req.ServiceRuntimeInstruction, "待确认提案")
+	require.Contains(t, req.ServiceRuntimeInstruction, "不能直接修改服务档案")
 }
 
 func TestApplyServiceOrchestrationUsesBoundMemberAgents(t *testing.T) {

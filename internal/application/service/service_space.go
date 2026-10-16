@@ -2220,20 +2220,27 @@ func serviceFactLLMFallbackEnabled(tenantID uint64) bool {
 
 func extractProfileFieldValue(text string, field types.ServiceSpaceProfileField) (string, string, bool) {
 	labels := append([]string{field.Label, field.Key}, field.Aliases...)
-	for _, label := range labels {
-		label = strings.TrimSpace(label)
-		if label == "" {
-			continue
-		}
-		if index := strings.Index(text, label); index >= 0 {
-			rest := strings.TrimSpace(text[index+len(label):])
-			rest = strings.TrimLeft(rest, "：:是为的，, ")
-			if value := trimProposalClause(rest); value != "" {
-				return value, text, true
+	clauses := splitProposalClauses(text)
+	for _, clause := range clauses {
+		for _, label := range labels {
+			label = strings.TrimSpace(label)
+			if label == "" {
+				continue
+			}
+			if index := strings.Index(clause, label); index >= 0 {
+				rest := strings.TrimSpace(clause[index+len(label):])
+				if rest == "" || strings.HasPrefix(rest, "、") ||
+					strings.HasPrefix(rest, "和") || strings.HasPrefix(rest, "与") ||
+					strings.HasPrefix(rest, "及") || strings.HasPrefix(rest, "包括") {
+					continue
+				}
+				rest = strings.TrimLeft(rest, "：:＝=是为的，, ")
+				if value := normalizeProposalFieldValue(trimProposalClause(rest)); value != "" {
+					return value, clause, true
+				}
 			}
 		}
 	}
-	clauses := splitProposalClauses(text)
 	switch field.Key {
 	case "child_stage":
 		for _, clause := range clauses {
@@ -2261,6 +2268,21 @@ func extractProfileFieldValue(text string, field types.ServiceSpaceProfileField)
 		}
 	}
 	return "", "", false
+}
+
+func normalizeProposalFieldValue(value string) string {
+	value = strings.TrimSpace(value)
+	for _, marker := range []string{
+		"更新为", "变更为", "调整为", "改为", "转为", "变为",
+		"现在是", "现为", "升至", "转到",
+	} {
+		if index := strings.LastIndex(value, marker); index >= 0 {
+			if current := strings.TrimSpace(value[index+len(marker):]); current != "" {
+				return current
+			}
+		}
+	}
+	return value
 }
 
 func trimProposalClause(value string) string {
