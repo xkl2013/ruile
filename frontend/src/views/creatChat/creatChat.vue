@@ -236,8 +236,7 @@ const selectExpert = async (agent: CustomAgent) => {
     settingsStore.toggleAgent(agent.config?.agent_mode === 'smart-reasoning');
 
     try {
-        const sessionTitle = agent.name?.trim() || t('createChat.newSessionTitle');
-        const res = await createSessions({ title: sessionTitle });
+        const res = await createSessions({});
         const sessionId = res?.data?.id;
         if (!sessionId) {
             console.error('[createChat] Failed to create empty session for agent');
@@ -247,11 +246,11 @@ const selectExpert = async (agent: CustomAgent) => {
 
         const now = new Date().toISOString();
         usemenuStore.updataMenuChildren({
-            title: sessionTitle,
+            title: t('createChat.newSessionTitle'),
             path: `chat/${sessionId}`,
             id: sessionId,
             isMore: false,
-            isNoTitle: false,
+            isNoTitle: true,
             created_at: now,
             updated_at: now,
         });

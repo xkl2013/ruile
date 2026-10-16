@@ -1273,17 +1273,16 @@ async function handleUseSharedAgentInChat(shared: SharedAgentInfo) {
   const menuStore = useMenuStore()
   selectAgentForChat(shared.agent, shared.source_tenant_id)
   try {
-    const sessionTitle = shared.agent.name?.trim() || t('createChat.newSessionTitle')
-    const res = await createSessions({ title: sessionTitle })
+    const res = await createSessions({})
     if (res?.data?.id) {
       const sessionId = res.data.id
       const now = new Date().toISOString()
       menuStore.updataMenuChildren({
-        title: sessionTitle,
+        title: t('createChat.newSessionTitle'),
         path: `chat/${sessionId}`,
         id: sessionId,
         isMore: false,
-        isNoTitle: false,
+        isNoTitle: true,
         created_at: now,
         updated_at: now
       })
