@@ -1,6 +1,6 @@
 import Flutter
-import CoreBluetooth
 import JL_BLEKit
+import CoreBluetooth
 import UIKit
 
 @main
@@ -24,17 +24,13 @@ import UIKit
 
 private final class JieliRecordingCardSdkIosBridge: NSObject,
   FlutterStreamHandler,
-  CBCentralManagerDelegate,
-  CBPeripheralDelegate,
-  JL_AssistDelegate,
   JLDevAudioManagerDelegate
 {
   private let methodChannelName = "com.ruile.recording_card.jieli/methods"
   private let eventChannelName = "com.ruile.recording_card.jieli/events"
   private let terminalConnectionStatuses: Set<Int> = [0, 1, 4, 5, 6, 7, 11]
   private let connectTimeoutSeconds: TimeInterval = 12
-  private let externalAssistAuthEnabled = true
-  private let useExternalX9TransportOnly = true
+  private let sdkAuthEnabled = true
   private let flashSpaceQueue = DispatchQueue(
     label: "com.ruile.recording_card.jieli.flash_space",
     qos: .utility
@@ -48,15 +44,17 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     label: "com.ruile.recording_card.jieli.file_read",
     qos: .utility
   )
+  private let fileDeleteQueue = DispatchQueue(
+    label: "com.ruile.recording_card.jieli.file_delete",
+    qos: .utility
+  )
 
   private var eventSink: FlutterEventSink?
   private var bleMultiple: JL_BLEMultiple?
-  private var assist: JL_Assist?
-  private var externalCentral: CBCentralManager?
-  private var externalDevices: [String: JL_EntityM] = [:]
-  private var externalPeripheral: CBPeripheral?
-  private var externalConnectingUUID = ""
-  private var externalScanRunning = false
+  private var observingAttDevices = false
+  private var attEntities: [String: JL_EntityM] = [:]
+  private var attEntityResolutionInFlight: Set<String> = []
+  private var attPeripheralNames: [String: String] = [:]
   private var activeEntity: JL_EntityM?
   private var audioManager: JLDevAudioManager?
   private var scanStopWorkItem: DispatchWorkItem?
@@ -89,7 +87,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   private var activeReadPath = ""
   private var activeReadHandle: FileHandle?
   private var activeReadBytes = 0
+  private var activeReadExpectedBytes = 0
   private var activeReadLastProgressAt: Date?
+  private var activeReadCompletionWorkItem: DispatchWorkItem?
   private var activeDeleteTaskId: String?
   private var activeDeleteStorageIndex: Int?
   private var activeDeleteCluster: UInt32?
@@ -212,12 +212,17 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func initialize() -> [String: Any] {
-    if !useExternalX9TransportOnly, bleMultiple == nil {
+    if bleMultiple == nil {
       let sdk = JL_BLEMultiple()
-      sdk.ble_FILTER_ENABLE = true
-      sdk.ble_PAIR_ENABLE = externalAssistAuthEnabled
-      sdk.authEnable = externalAssistAuthEnabled
+      // X9 does not provide the vendor filter key expected by JL_BLEMultiple.
+      // Filtering without a key drops the device before discovery callbacks.
+      sdk.ble_FILTER_ENABLE = false
+      sdk.ble_PAIR_ENABLE = sdkAuthEnabled
+      sdk.authEnable = sdkAuthEnabled
       sdk.ble_TIMEOUT = 7
+      sdk.jl_BLE_SERVICE = "AE00"
+      sdk.jl_BLE_RCSP_W = "AE01"
+      sdk.jl_BLE_RCSP_R = "AE02"
       sdk.bleDeviceTypeArr = [
         NSNumber(value: -1),
         NSNumber(value: 0),
@@ -229,25 +234,97 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         NSNumber(value: 6),
       ]
       bleMultiple = sdk
-      debugLog("initialize sdk filter=true auth=\(externalAssistAuthEnabled) deviceTypes=\(sdk.bleDeviceTypeArr?.count ?? 0)")
-    }
-    if assist == nil {
-      let sdkAssist = JL_Assist()
-      sdkAssist.mService = "AE00"
-      sdkAssist.mRcsp_W = "AE01"
-      sdkAssist.mRcsp_R = "AE02"
-      sdkAssist.mAuthEnable = externalAssistAuthEnabled
-      sdkAssist.mNeedPaired = externalAssistAuthEnabled
-      sdkAssist.mDelegate = self
-      assist = sdkAssist
-      debugLog("initialize assist auth=\(externalAssistAuthEnabled)")
-    }
-    if externalCentral == nil {
-      externalCentral = CBCentralManager(delegate: self, queue: .main)
+      startObservingAttDevices(sdk)
+      debugLog(
+        "initialize transport=JL_BLEMultiple filter=false auth=\(sdkAuthEnabled) "
+          + "service=\(sdk.jl_BLE_SERVICE) write=\(sdk.jl_BLE_RCSP_W) "
+          + "read=\(sdk.jl_BLE_RCSP_R) "
+          + "deviceTypes=\(sdk.bleDeviceTypeArr?.count ?? 0)"
+      )
     }
     registerNotificationsIfNeeded()
     emit("initialized")
     return availabilityMap()
+  }
+
+  private func startObservingAttDevices(_ sdk: JL_BLEMultiple) {
+    guard !observingAttDevices else { return }
+    observingAttDevices = true
+    sdk.addObserver(
+      self,
+      forKeyPath: "bleAttDevices",
+      options: [.initial, .new],
+      context: nil
+    )
+  }
+
+  override func observeValue(
+    forKeyPath keyPath: String?,
+    of object: Any?,
+    change: [NSKeyValueChangeKey: Any]?,
+    context: UnsafeMutableRawPointer?
+  ) {
+    if keyPath == "bleAttDevices",
+       let sdk = object as? JL_BLEMultiple,
+       sdk === bleMultiple {
+      DispatchQueue.main.async { [weak self] in
+        self?.syncAttDevices(stage: "att_devices_kvo")
+      }
+      return
+    }
+    super.observeValue(
+      forKeyPath: keyPath,
+      of: object,
+      change: change,
+      context: context
+    )
+  }
+
+  private func syncAttDevices(stage: String) {
+    guard let sdk = bleMultiple else { return }
+    for peripheral in sdk.bleAttDevices {
+      let name = (peripheral.name ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      guard name.caseInsensitiveCompare("X9") == .orderedSame else { continue }
+
+      let identifier = peripheral.identifier.uuidString
+      attPeripheralNames[identifier] = name
+      if let entity = attEntities[identifier] {
+        debugLog("ATT entity cached stage=\(stage) \(debugDescription(for: entity))")
+        emitDevice(entity)
+        continue
+      }
+      guard attEntityResolutionInFlight.insert(identifier).inserted else {
+        continue
+      }
+
+      debugLog(
+        "ATT entity resolve stage=\(stage) name=\(name) uuid=\(identifier) "
+          + "state=\(peripheral.state.rawValue)"
+      )
+      sdk.getEntityWithSearchUUID(
+        identifier,
+        searchStatus: false
+      ) { [weak self, weak sdk] historyEntity in
+        DispatchQueue.main.async {
+          guard let self, let sdk, sdk === self.bleMultiple else { return }
+          self.attEntityResolutionInFlight.remove(identifier)
+          guard let entity = historyEntity ?? sdk.makeEntity(withUUID: identifier) else {
+            self.debugLog(
+              "ATT entity resolve failed stage=\(stage) uuid=\(identifier)"
+            )
+            return
+          }
+          self.attEntities[identifier] = entity
+          self.debugLog(
+            "ATT entity ready stage=\(stage) source="
+              + (historyEntity == nil ? "created" : "history")
+              + " \(self.debugDescription(for: entity))"
+          )
+          self.emitDevice(entity)
+        }
+      }
+    }
   }
 
   private func registerNotificationsIfNeeded() {
@@ -304,12 +381,17 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       emitDevice(entity)
       return
     }
-    debugLog("found notification without entity \(debugArraysDescription())")
+    debugLog(
+      "found notification without entity "
+        + "objectType=\(String(describing: type(of: notification.object as Any))) "
+        + "userInfo=\(String(describing: notification.userInfo)) "
+        + debugArraysDescription()
+    )
     allEntities().forEach(emitDevice)
   }
 
   @objc private func handleConnectedNotification(_ notification: Notification) {
-    if let entity = notification.object as? JL_EntityM {
+    if let entity = entity(from: notification) {
       debugLog("connected notification entity \(debugDescription(for: entity))")
       publishConnectedEntity(entity, stage: "entity_connected_notification")
     } else if let entity = allEntities().first(where: isConnectedEntity) {
@@ -322,7 +404,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   @objc private func handleDisconnectedNotification(_ notification: Notification) {
-    if let entity = notification.object as? JL_EntityM {
+    if let entity = entity(from: notification) {
       emitConnection(entity, status: 10)
       if entityIdentifier(entity) == entityIdentifier(activeEntity) {
         cancelReadFile()
@@ -336,10 +418,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         emitRcspReady(entity, ready: false, stage: "entity_disconnected_notification")
       }
     } else {
-      guard externalPeripheral == nil, activeEntity == nil else {
-        debugLog("ignore empty disconnected notification while external X9 is active")
-        return
-      }
       cancelReadFile()
       clearActiveDeleteTask()
       invalidateFlashSpaceRequest()
@@ -357,9 +435,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     if let timeoutMs = pendingScanTimeoutMs {
       startSdkScan(timeoutMs: timeoutMs)
     }
-    if !useExternalX9TransportOnly {
-      attemptClassicX9Reconnect(stage: "bluetooth_on")
-    }
+    attemptClassicX9Reconnect(stage: "bluetooth_on")
   }
 
   @objc private func handleBluetoothOffNotification(_ notification: Notification) {
@@ -369,7 +445,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
 
   @objc private func handleClassicBluetoothChangeNotification(_ notification: Notification) {
     debugLog("edr change object=\(String(describing: notification.object))")
-    guard !useExternalX9TransportOnly else { return }
     attemptClassicX9Reconnect(stage: "edr_change")
   }
 
@@ -378,71 +453,42 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     let timeoutMs = (arguments?["timeout_ms"] as? Int) ?? 30_000
     scanStopWorkItem?.cancel()
     let normalizedTimeoutMs = max(1, timeoutMs)
-    if useExternalX9TransportOnly {
-      _ = initialize()
-      if externalCentral?.state == .poweredOn {
-        startSdkScan(timeoutMs: normalizedTimeoutMs)
-      } else {
-        pendingScanTimeoutMs = normalizedTimeoutMs
-        emit(
-          "adapterStatus",
-          payload: [
-            "enabled": false,
-            "state": externalCentral?.state.rawValue ?? 0,
-            "source": "jieli_ios_assist",
-          ]
-        )
-        emit(
-          "scanStatus",
-          payload: [
-            "scanning": false,
-            "waiting": true,
-          ]
-        )
-      }
+    let sdk = ensureSdk()
+    if isSdkBluetoothPoweredOn(sdk) {
+      startSdkScan(timeoutMs: normalizedTimeoutMs)
     } else {
-      let sdk = ensureSdk()
-      if isSdkBluetoothPoweredOn(sdk) {
-        startSdkScan(timeoutMs: normalizedTimeoutMs)
-      } else {
-        pendingScanTimeoutMs = normalizedTimeoutMs
-        emit(
-          "adapterStatus",
-          payload: [
-            "enabled": false,
-            "state": Int(sdk.bleManagerState.rawValue),
-          ]
-        )
-        emit(
-          "scanStatus",
-          payload: [
-            "scanning": false,
-            "waiting": true,
-          ]
-        )
-      }
+      pendingScanTimeoutMs = normalizedTimeoutMs
+      emit(
+        "adapterStatus",
+        payload: [
+          "enabled": false,
+          "state": Int(sdk.bleManagerState.rawValue),
+          "source": "jieli_ios_sdk",
+        ]
+      )
+      emit(
+        "scanStatus",
+        payload: [
+          "scanning": false,
+          "waiting": true,
+        ]
+      )
     }
     result(true)
   }
 
   private func startSdkScan(timeoutMs: Int) {
-    let sdk = useExternalX9TransportOnly ? nil : ensureSdk()
+    let sdk = ensureSdk()
     scanStopWorkItem?.cancel()
     pendingScanTimeoutMs = nil
     if sdkScanRunning {
-      if !useExternalX9TransportOnly {
-        sdk?.scanStop()
-      }
+      sdk.scanStop()
     }
-    debugLog("scanStart timeout=\(timeoutMs) externalOnly=\(useExternalX9TransportOnly) \(debugArraysDescription())")
-    if !useExternalX9TransportOnly {
-      sdk?.scanStart()
-    }
+    debugLog("scanStart timeout=\(timeoutMs) transport=JL_BLEMultiple \(debugArraysDescription())")
+    sdk.scanStart()
     sdkScanRunning = true
-    startExternalScanIfNeeded(stage: "scan_start")
-    if !useExternalX9TransportOnly {
-      attemptClassicX9Reconnect(stage: "scan_start")
-    }
+    syncAttDevices(stage: "scan_start")
+    attemptClassicX9Reconnect(stage: "scan_start")
     scheduleConnectedEntitySync(stage: "scan_started")
     emit("scanStatus", payload: ["scanning": true])
 
@@ -462,12 +508,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     pendingScanTimeoutMs = nil
     if let sdk = bleMultiple,
        sdkScanRunning,
-       !useExternalX9TransportOnly,
        isSdkBluetoothPoweredOn(sdk) {
       sdk.scanStop()
     }
     sdkScanRunning = false
-    stopExternalScan()
     debugLog("scanStop shouldSync=\(shouldSync) \(debugArraysDescription())")
     if shouldSync {
       syncConnectedEntities(stage: "scan_stopped")
@@ -497,15 +541,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       connectByMac(address, result: result)
       return
     }
-    if useExternalX9TransportOnly {
-      result(FlutterError(
-        code: "JIELI_DEVICE_NOT_FOUND",
-        message: "No scanned X9 device matches the supplied UUID.",
-        details: address
-      ))
-      return
-    }
-
     ensureSdk().getEntityWithSearchUUID(address, searchStatus: true) { entity in
       guard let entity else {
         result(FlutterError(
@@ -520,12 +555,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func connect(_ entity: JL_EntityM, result: @escaping FlutterResult) {
-    if useExternalX9TransportOnly,
-       externalDevices[entityIdentifier(entity)] != nil {
-      connectExternalX9(entity, stage: "manual_connect")
-      result(true)
-      return
-    }
     var completed = false
     let timeoutWorkItem = DispatchWorkItem { [weak self] in
       guard let self, !completed else { return }
@@ -699,179 +728,11 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     }
   }
 
-  private func startExternalScanIfNeeded(stage: String) {
-    guard let central = externalCentral else { return }
-    guard central.state == .poweredOn else {
-      debugLog("external scan wait state=\(central.state.rawValue) stage=\(stage)")
-      return
-    }
-    registerExternalConnectionEventsIfPossible(central)
-    restoreExternalConnectedPeripherals(central, stage: stage)
-    guard !externalScanRunning else { return }
-    externalScanRunning = true
-    debugLog("external scan start stage=\(stage)")
-    central.scanForPeripherals(
-      withServices: nil,
-      options: [CBConnectPeripheralOptionEnableTransportBridgingKey: true]
-    )
-  }
-
-  private func stopExternalScan() {
-    guard externalScanRunning else { return }
-    externalScanRunning = false
-    externalCentral?.stopScan()
-    debugLog("external scan stop")
-  }
-
-  private func registerExternalConnectionEventsIfPossible(_ central: CBCentralManager) {
-    if #available(iOS 13.0, *) {
-      central.registerForConnectionEvents(
-        options: [
-          CBConnectionEventMatchingOption.serviceUUIDs: [
-            CBUUID(string: "AE00"),
-          ],
-        ]
-      )
-    }
-  }
-
-  private func restoreExternalConnectedPeripherals(
-    _ central: CBCentralManager,
-    stage: String
-  ) {
-    let peripherals = central.retrieveConnectedPeripherals(
-      withServices: [CBUUID(string: "AE00")]
-    )
-    guard !peripherals.isEmpty else { return }
-    debugLog("external restore connected count=\(peripherals.count) stage=\(stage)")
-    let x9Peripherals = peripherals.filter(isX9Peripheral)
-    x9Peripherals.forEach { peripheral in
-      emitDevice(externalEntity(for: peripheral, rssi: nil))
-    }
-    guard let peripheral = x9Peripherals.first else { return }
-    connectExternalX9(
-      externalEntity(for: peripheral, rssi: nil),
-      stage: "\(stage)_restore"
-    )
-  }
-
-  private func isX9Peripheral(_ peripheral: CBPeripheral) -> Bool {
-    (peripheral.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-      .caseInsensitiveCompare("X9") == .orderedSame
-  }
-
-  private func externalEntity(
-    for peripheral: CBPeripheral,
-    rssi: NSNumber?,
-    advertisementData: Data? = nil
-  ) -> JL_EntityM {
-    if let existing = externalDevices[peripheral.identifier.uuidString] {
-      existing.setBlePeripheral(peripheral)
-      existing.setBleItem(peripheral.name ?? "X9")
-      if let rssi {
-        existing.mRSSI = rssi
-      }
-      if let advertisementData {
-        existing.mAdvData = advertisementData
-      }
-      return existing
-    }
-    let entity = JL_EntityM()
-    entity.mUUID = peripheral.identifier.uuidString
-    entity.mAuthEnable = externalAssistAuthEnabled
-    entity.mBLE_PAIR_ENABLE = externalAssistAuthEnabled
-    entity.setBlePeripheral(peripheral)
-    entity.setBleItem(peripheral.name ?? "X9")
-    if let rssi {
-      entity.mRSSI = rssi
-    }
-    if let advertisementData {
-      entity.mAdvData = advertisementData
-    }
-    if let soundCardType = JL_DeviceType(rawValue: 4) {
-      entity.mType = soundCardType
-    }
-    externalDevices[peripheral.identifier.uuidString] = entity
-    return entity
-  }
-
-  private func connectExternalX9(_ entity: JL_EntityM, stage: String) {
-    guard let central = externalCentral else { return }
-    let uuid = entityIdentifier(entity)
-    if !externalConnectingUUID.isEmpty {
-      return
-    }
-    if let peripheral = externalPeripheral,
-       peripheral.identifier.uuidString == uuid,
-       rcspReady {
-      return
-    }
-    externalConnectingUUID = uuid
-    stopExternalScan()
-    debugLog("external connect stage=\(stage) \(debugDescription(for: entity))")
-    emit(
-      "authStatus",
-      payload: [
-        "address": uuid,
-        "stage": "auth_start",
-        "ready": false,
-      ]
-    )
-    emitConnection(entity, status: 2)
-    central.connect(
-      entity.mPeripheral,
-      options: [CBConnectPeripheralOptionEnableTransportBridgingKey: true]
-    )
-  }
-
-  private func completeExternalConnection(
-    peripheral: CBPeripheral,
-    stage: String
-  ) {
-    guard let sdkAssist = assist else { return }
-    let entity = externalEntity(for: peripheral, rssi: nil)
-    sdkAssist.mCmdManager.cmdTargetFeatureResult { [weak self] status, _, _ in
-      DispatchQueue.main.async {
-        guard let self else { return }
-        self.debugLog("external target feature stage=\(stage) status=\(Int(status.rawValue)) peripheral=\(peripheral.identifier.uuidString)")
-        guard status == .success else {
-          self.externalConnectingUUID = ""
-          self.emitConnection(entity, status: 1)
-          self.externalCentral?.cancelPeripheralConnection(peripheral)
-          return
-        }
-        sdkAssist.mCmdManager.mEntity = entity
-        entity.mCmdManager = sdkAssist.mCmdManager
-        self.externalPeripheral = peripheral
-        self.externalConnectingUUID = ""
-        self.preparedEntityIds.insert(self.entityIdentifier(entity))
-        self.publishConnectedEntity(entity, stage: stage)
-      }
-    }
-  }
-
   private func disconnect(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let arguments = call.arguments as? [String: Any]
     let address = (arguments?["address"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     guard let entity = address.isEmpty ? activeEntity : matchingEntity(address) else {
       activeEntity = nil
-      result(nil)
-      return
-    }
-    if let peripheral = externalPeripheral,
-       entityIdentifier(entity) == peripheral.identifier.uuidString {
-      externalCentral?.cancelPeripheralConnection(peripheral)
-      cancelReadFile()
-      clearActiveDeleteTask()
-      invalidateFlashSpaceRequest()
-      preparedEntityIds.remove(entityIdentifier(entity))
-      preparingEntityIds.remove(entityIdentifier(entity))
-      activeEntity = nil
-      externalPeripheral = nil
-      rcspReady = false
-      clearFileBrowseState()
-      emitConnection(entity, status: 10)
-      emitRcspReady(entity, ready: false, stage: "external_entity_disconnected")
       result(nil)
       return
     }
@@ -982,14 +843,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func listStorages(result: @escaping FlutterResult) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_STORAGE_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_STORAGE_NOT_CONNECTED"
+    ) else { return }
 
     requestSystemInfo(for: entity, trigger: "list_storages") { [weak self] status in
       guard let self else { return }
@@ -1011,14 +868,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_FILES_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_FILES_NOT_CONNECTED"
+    ) else { return }
     let manager = entity.mCmdManager
     let arguments = call.arguments as? [String: Any]
     let storageIndex = (arguments?["storage_index"] as? Int) ?? -1
@@ -1068,14 +921,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_FILES_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_FILES_NOT_CONNECTED"
+    ) else { return }
     let arguments = call.arguments as? [String: Any]
     let storageIndex = (arguments?["storage_index"] as? Int) ?? -1
     guard let root = makeStorageRoot(storageIndex: storageIndex, entity: entity) else {
@@ -1105,14 +954,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_FOLDER_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_FOLDER_NOT_CONNECTED"
+    ) else { return }
     let manager = entity.mCmdManager
     let arguments = call.arguments as? [String: Any]
     let storageIndex = (arguments?["storage_index"] as? Int) ?? -1
@@ -1151,14 +996,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_FOLDER_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_FOLDER_NOT_CONNECTED"
+    ) else { return }
     let manager = entity.mCmdManager
     let arguments = call.arguments as? [String: Any]
     let storageIndex = (arguments?["storage_index"] as? Int) ?? -1
@@ -1199,14 +1040,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_READ_FILE_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_READ_FILE_NOT_CONNECTED"
+    ) else { return }
     let manager = entity.mCmdManager
     let readBusy = fileReadQueue.sync { activeReadTaskId != nil }
     guard !readBusy else {
@@ -1294,7 +1131,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       activeReadPath = outputURL.path
       activeReadHandle = fileHandle
       activeReadBytes = 0
+      activeReadExpectedBytes = 0
       activeReadLastProgressAt = nil
+      activeReadCompletionWorkItem?.cancel()
+      activeReadCompletionWorkItem = nil
       return true
     }
     guard claimed else {
@@ -1319,9 +1159,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     manager.mFileManager.cmdFileReadContent(
       withFileClus: UInt32(cluster),
       result: { [weak self] fileResult, size, data, progress in
-        // The SDK callback is part of the BLE transfer path. Return quickly
-        // and serialize file I/O separately so writing a chunk cannot block
-        // the next packet or the terminal callback.
         guard let self else { return }
         self.fileReadQueue.async {
           self.handleFileReadResult(
@@ -1387,14 +1224,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
-    guard let entity = connectedEntity() else {
-      result(FlutterError(
-        code: "JIELI_DELETE_FILE_NOT_CONNECTED",
-        message: "No connected Jieli device.",
-        details: nil
-      ))
-      return
-    }
+    guard let entity = readyEntity(
+      result: result,
+      notConnectedCode: "JIELI_DELETE_FILE_NOT_CONNECTED"
+    ) else { return }
     let manager = entity.mCmdManager
     guard activeDeleteTaskId == nil else {
       result(FlutterError(
@@ -1455,49 +1288,59 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       file: target
     )
 
-    manager.mFileManager.cmdDelete(target, isLast: .isLast) { [weak self] status, _, _ in
-      DispatchQueue.main.async {
-        guard let self, self.activeDeleteTaskId == taskId else { return }
-        let code = Int(status.rawValue)
-        if status == .success {
-          self.removeCachedFile(
-            storageIndex: storageIndex,
-            cluster: UInt32(cluster),
-            name: self.activeDeleteName
-          )
-          self.emitFileDeleteEvent(
-            type: "fileDeleted",
-            taskId: taskId,
-            storageIndex: storageIndex,
-            cluster: UInt32(cluster),
-            name: self.activeDeleteName,
-            file: target
-          )
-          self.emitFileDeleteEvent(
-            type: "fileDeleteFinished",
-            taskId: taskId,
-            storageIndex: storageIndex,
-            cluster: UInt32(cluster),
-            name: self.activeDeleteName,
-            file: target
-          )
-          self.emit(
-            "fileList",
-            payload: self.fileBrowseSnapshotPayload(storageIndex: storageIndex)
-          )
-        } else {
-          self.emitFileDeleteEvent(
-            type: "fileDeleteFailed",
-            taskId: taskId,
-            storageIndex: storageIndex,
-            cluster: UInt32(cluster),
-            name: self.activeDeleteName,
-            file: target,
-            code: code,
-            message: "Jieli 删除文件失败（\(code)）"
-          )
+    // JL_FileManager's delete API waits internally for the device response.
+    // Calling it from Flutter's platform thread blocks UIKit long enough for
+    // the iOS scene-update watchdog to terminate the app.
+    fileDeleteQueue.async { [weak self, weak manager] in
+      guard let self, let manager else { return }
+      self.debugLog(
+        "delete command begin task=\(taskId) storage=\(storageIndex) "
+          + "cluster=\(cluster) name=\(self.activeDeleteName)"
+      )
+      manager.mFileManager.cmdDelete(target, isLast: .isLast) { [weak self] status, _, _ in
+        DispatchQueue.main.async {
+          guard let self, self.activeDeleteTaskId == taskId else { return }
+          let code = Int(status.rawValue)
+          if status == .success {
+            self.removeCachedFile(
+              storageIndex: storageIndex,
+              cluster: UInt32(cluster),
+              name: self.activeDeleteName
+            )
+            self.emitFileDeleteEvent(
+              type: "fileDeleted",
+              taskId: taskId,
+              storageIndex: storageIndex,
+              cluster: UInt32(cluster),
+              name: self.activeDeleteName,
+              file: target
+            )
+            self.emitFileDeleteEvent(
+              type: "fileDeleteFinished",
+              taskId: taskId,
+              storageIndex: storageIndex,
+              cluster: UInt32(cluster),
+              name: self.activeDeleteName,
+              file: target
+            )
+            self.emit(
+              "fileList",
+              payload: self.fileBrowseSnapshotPayload(storageIndex: storageIndex)
+            )
+          } else {
+            self.emitFileDeleteEvent(
+              type: "fileDeleteFailed",
+              taskId: taskId,
+              storageIndex: storageIndex,
+              cluster: UInt32(cluster),
+              name: self.activeDeleteName,
+              file: target,
+              code: code,
+              message: "Jieli 删除文件失败（\(code)）"
+            )
+          }
+          self.clearActiveDeleteTask()
         }
-        self.clearActiveDeleteTask()
       }
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 20.0) { [weak self] in
@@ -1524,10 +1367,33 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func connectedEntity() -> JL_EntityM? {
-    if let activeEntity {
+    if let activeEntity, isConnectedEntity(activeEntity) {
       return activeEntity
     }
     return allEntities().first(where: isConnectedEntity)
+  }
+
+  private func readyEntity(
+    result: @escaping FlutterResult,
+    notConnectedCode: String
+  ) -> JL_EntityM? {
+    guard rcspReady else {
+      result(FlutterError(
+        code: "JIELI_RCSP_NOT_READY",
+        message: "Jieli RCSP is not ready.",
+        details: nil
+      ))
+      return nil
+    }
+    guard let entity = connectedEntity() else {
+      result(FlutterError(
+        code: notConnectedCode,
+        message: "No connected Jieli device.",
+        details: nil
+      ))
+      return nil
+    }
+    return entity
   }
 
   private func requestSystemInfo(
@@ -1839,10 +1705,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       message: "正在读取目录",
       includeSnapshot: true
     )
-    manager.mFileManager.cmdBrowseModel(model, number: 20, result: nil)
     manager.mFileManager.cmdBrowseMonitorResult { [weak self] items, reason in
       self?.handleBrowseResult(items, reason: reason)
     }
+    manager.mFileManager.cmdBrowseModel(model, number: 20, result: nil)
   }
 
   private func handleBrowseResult(_ items: Any?, reason: JL_BrowseReason) {
@@ -2123,6 +1989,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     }
     switch result {
     case .start:
+      activeReadExpectedBytes = Int(size)
       emitFileReadEvent(
         type: "fileReadStarted",
         taskId: taskId,
@@ -2133,6 +2000,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         bytes: activeReadBytes
       )
     case .reading:
+      if progressValue >= 100, activeReadBytes > 0 {
+        scheduleReadCompletionFallback(taskId: taskId, size: size)
+      }
       let now = Date()
       if let lastProgressAt = activeReadLastProgressAt,
          now.timeIntervalSince(lastProgressAt) < 0.1 {
@@ -2199,35 +2069,47 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     }
   }
 
+  private func scheduleReadCompletionFallback(taskId: String, size: UInt32) {
+    guard activeReadTaskId == taskId else { return }
+    guard activeReadExpectedBytes <= 0 ||
+            activeReadBytes >= activeReadExpectedBytes else {
+      debugLog(
+        "skip file completion fallback task=\(taskId) "
+          + "expectedBytes=\(activeReadExpectedBytes) "
+          + "actualBytes=\(activeReadBytes)"
+      )
+      return
+    }
+    activeReadCompletionWorkItem?.cancel()
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.activeReadTaskId == taskId else { return }
+      self.debugLog(
+        "finish file read from 100% fallback task=\(taskId) "
+          + "expectedBytes=\(self.activeReadExpectedBytes) "
+          + "actualBytes=\(self.activeReadBytes)"
+      )
+      self.finishActiveRead(taskId: taskId, size: size)
+    }
+    activeReadCompletionWorkItem = workItem
+    fileReadQueue.asyncAfter(
+      deadline: .now() + .milliseconds(800),
+      execute: workItem
+    )
+  }
+
   private func finishActiveRead(taskId: String, size: UInt32) {
     guard activeReadTaskId == taskId else { return }
+    activeReadCompletionWorkItem?.cancel()
+    activeReadCompletionWorkItem = nil
     let actualBytes = activeReadBytes
-    let expectedBytes = Int(size)
     debugLog(
-      "finish file read task=\(taskId) expectedBytes=\(expectedBytes) "
+      "finish file read task=\(taskId) sdkSize=\(size) "
         + "actualBytes=\(actualBytes) "
         + "path=\(activeReadPath) sink=\(eventSink != nil)"
     )
-    if actualBytes != expectedBytes {
-      let message =
-        "Data loss. Firmware return data size = \(expectedBytes), "
-          + "Actual received data size = \(actualBytes)"
-      closeActiveReadFile(removeFile: true)
-      emitFileReadEvent(
-        type: "fileReadFailed",
-        taskId: taskId,
-        storageIndex: activeReadStorageIndex ?? -1,
-        cluster: activeReadCluster ?? 0,
-        name: activeReadName,
-        path: activeReadPath,
-        progress: 99,
-        bytes: actualBytes,
-        code: 16387,
-        message: message
-      )
-      clearActiveReadTask()
-      return
-    }
+    // JL_FileManager documents .end as the terminal success state. The size
+    // callback parameter is metadata and is not documented as a final-length
+    // checksum, so completion follows the SDK state and reports local bytes.
     closeActiveReadFile(removeFile: false)
     emitFileReadEvent(
       type: "fileReadComplete",
@@ -2238,7 +2120,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       path: activeReadPath,
       progress: 100,
       bytes: actualBytes,
-      code: expectedBytes
+      code: 0
     )
     clearActiveReadTask()
   }
@@ -2285,7 +2167,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     activeReadName = ""
     activeReadPath = ""
     activeReadBytes = 0
+    activeReadExpectedBytes = 0
     activeReadLastProgressAt = nil
+    activeReadCompletionWorkItem?.cancel()
+    activeReadCompletionWorkItem = nil
   }
 
   private func clearActiveDeleteTask() {
@@ -2338,7 +2223,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     result([
       "connected": connected,
       "address": entityIdentifier(entity),
-      "name": entity?.mItem ?? "",
+      "name": entityDisplayName(entity),
       "rcsp_ready": connected && rcspReady,
     ])
   }
@@ -2372,14 +2257,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     preparingEntityIds.removeAll()
     classicMacReconnectInFlight = false
     lastClassicMacReconnect = ""
-    externalCentral?.stopScan()
-    externalCentral?.delegate = nil
-    externalCentral = nil
-    assist = nil
-    externalDevices.removeAll()
-    externalPeripheral = nil
-    externalConnectingUUID = ""
-    externalScanRunning = false
     storageRoots.removeAll()
     storageCurrentModels.removeAll()
     storageModelStacks.removeAll()
@@ -2388,6 +2265,13 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     browseStorageIndex = nil
     audioManager = nil
     activeEntity = nil
+    if observingAttDevices, let sdk = bleMultiple {
+      sdk.removeObserver(self, forKeyPath: "bleAttDevices")
+      observingAttDevices = false
+    }
+    attEntities.removeAll()
+    attEntityResolutionInFlight.removeAll()
+    attPeripheralNames.removeAll()
     bleMultiple = nil
     if notificationsRegistered {
       NotificationCenter.default.removeObserver(self)
@@ -2397,30 +2281,44 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
 
   private func allEntities() -> [JL_EntityM] {
     var entities: [JL_EntityM] = []
+    let appendUnique: (JL_EntityM) -> Void = { entity in
+      if !entities.contains(where: {
+        self.entityIdentifier($0) == self.entityIdentifier(entity)
+      }) {
+        entities.append(entity)
+      }
+    }
     if let discovered = bleMultiple?.blePeripheralArr {
       for item in discovered {
         if let entity = item as? JL_EntityM {
-          entities.append(entity)
+          appendUnique(entity)
         }
       }
+    }
+    for entity in attEntities.values {
+      appendUnique(entity)
     }
     if let connected = bleMultiple?.bleConnectedArr {
       for item in connected {
         if let entity = item as? JL_EntityM {
-          entities.append(entity)
+          appendUnique(entity)
         }
       }
     }
-    for entity in externalDevices.values {
-      if !entities.contains(where: { entityIdentifier($0) == entityIdentifier(entity) }) {
-        entities.append(entity)
-      }
-    }
-    if let activeEntity,
-       !entities.contains(where: { entityIdentifier($0) == entityIdentifier(activeEntity) }) {
-      entities.append(activeEntity)
+    if let activeEntity {
+      appendUnique(activeEntity)
     }
     return entities
+  }
+
+  private func entity(from notification: Notification) -> JL_EntityM? {
+    if let entity = notification.object as? JL_EntityM {
+      return entity
+    }
+    if let peripheral = notification.object as? CBPeripheral {
+      return matchingEntity(peripheral.identifier.uuidString)
+    }
+    return nil
   }
 
   private func matchingEntity(_ address: String) -> JL_EntityM? {
@@ -2449,10 +2347,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func isConnectedEntity(_ entity: JL_EntityM) -> Bool {
-    if let peripheral = externalPeripheral,
-       peripheral.identifier.uuidString == entityIdentifier(entity) {
-      return true
-    }
     guard let connected = bleMultiple?.bleConnectedArr else { return false }
     for item in connected {
       if let other = item as? JL_EntityM,
@@ -2466,7 +2360,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   private func publishConnectedEntity(_ entity: JL_EntityM, stage: String) {
     activeEntity = entity
     invalidateFlashSpaceRequest()
-    stopExternalScan()
     emitDevice(entity)
     emitConnection(entity, status: 8)
     let identifier = entityIdentifier(entity)
@@ -2571,13 +2464,29 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         }
       }
     }
+    var attItems: [String] = []
+    if let attArray = bleMultiple?.bleAttDevices {
+      for peripheral in attArray {
+        attItems.append(
+          "name=\(peripheral.name ?? "") "
+            + "uuid=\(peripheral.identifier.uuidString) "
+            + "state=\(peripheral.state.rawValue)"
+        )
+      }
+    }
     let found = foundItems.joined(separator: " | ")
+    let att = attItems.joined(separator: " | ")
     let connected = connectedItems.joined(separator: " | ")
-    return "found[\(bleMultiple?.blePeripheralArr.count ?? 0)]=\(found) connected[\(bleMultiple?.bleConnectedArr.count ?? 0)]=\(connected)"
+    return "found[\(bleMultiple?.blePeripheralArr.count ?? 0)]=\(found) "
+      + "att[\(bleMultiple?.bleAttDevices.count ?? 0)]=\(att) "
+      + "connected[\(bleMultiple?.bleConnectedArr.count ?? 0)]=\(connected)"
   }
 
   private func debugDescription(for entity: JL_EntityM) -> String {
-    "name=\(entity.mItem) uuid=\(entityIdentifier(entity)) edr=\(entity.mEdr) type=\(Int(entity.mType.rawValue)) rssi=\(entity.mRSSI.intValue) connected=\(isConnectedEntity(entity))"
+    "name=\(entityDisplayName(entity)) uuid=\(entityIdentifier(entity)) "
+      + "edr=\(entity.mEdr) type=\(Int(entity.mType.rawValue)) "
+      + "connectWay=\(Int(entity.mConnectWay.rawValue)) "
+      + "rssi=\(entity.mRSSI.intValue) connected=\(isConnectedEntity(entity))"
   }
 
   private func debugLog(_ message: String) {
@@ -2590,12 +2499,32 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     return uuid.isEmpty ? entity.mPeripheral.identifier.uuidString : uuid
   }
 
+  private func entityDisplayName(_ entity: JL_EntityM?) -> String {
+    guard let entity else { return "" }
+    let sdkName = entity.mItem.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !sdkName.isEmpty {
+      return sdkName
+    }
+    return attPeripheralNames[entityIdentifier(entity)] ?? ""
+  }
+
+  private func entityConnectProtocol(_ entity: JL_EntityM) -> String {
+    switch Int(entity.mConnectWay.rawValue) {
+    case 1:
+      return "spp"
+    case 2:
+      return "gatt_over_br_edr"
+    default:
+      return "ble"
+    }
+  }
+
   private func emitDevice(_ entity: JL_EntityM) {
     emit(
       "deviceFound",
       payload: [
         "address": entityIdentifier(entity),
-        "name": entity.mItem,
+        "name": entityDisplayName(entity),
         "rssi": entity.mRSSI.intValue,
         "type": String(describing: entity.mType),
         "device_type": Int(entity.mType.rawValue),
@@ -2604,7 +2533,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         "pid": entity.mPID,
         "edr": entity.mEdr,
         "connectable": true,
-        "connect_protocol": "ble",
+        "connect_protocol": entityConnectProtocol(entity),
         "is_connected": isConnectedEntity(entity),
         "rcsp_ready": rcspReady,
       ]
@@ -2616,7 +2545,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       "connection",
       payload: [
         "address": entityIdentifier(entity),
-        "name": entity.mItem,
+        "name": entityDisplayName(entity),
         "source": "jieli_ios",
         "status": status,
         "rcsp_status": status,
@@ -2656,243 +2585,6 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         "payload": payload,
       ])
     }
-  }
-
-  func centralManagerDidUpdateState(_ central: CBCentralManager) {
-    assist?.assistUpdate(central.state)
-    emit(
-      "adapterStatus",
-      payload: [
-        "enabled": central.state == .poweredOn,
-        "state": central.state.rawValue,
-        "source": "jieli_ios_assist",
-      ]
-    )
-    debugLog("external central state=\(central.state.rawValue)")
-    if central.state == .poweredOn {
-      if let timeoutMs = pendingScanTimeoutMs {
-        startSdkScan(timeoutMs: timeoutMs)
-      } else if sdkScanRunning {
-        startExternalScanIfNeeded(stage: "central_powered_on")
-      }
-    }
-  }
-
-  @available(iOS 13.0, *)
-  func centralManager(
-    _ central: CBCentralManager,
-    connectionEventDidOccur event: CBConnectionEvent,
-    for peripheral: CBPeripheral
-  ) {
-    debugLog("external connection event=\(event.rawValue) name=\(peripheral.name ?? "") uuid=\(peripheral.identifier.uuidString)")
-    if event == .peerConnected, isX9Peripheral(peripheral) {
-      let entity = externalEntity(for: peripheral, rssi: nil)
-      emitDevice(entity)
-      connectExternalX9(entity, stage: "external_connection_event")
-    } else if event == .peerDisconnected {
-      externalDevices.removeValue(forKey: peripheral.identifier.uuidString)
-      if externalPeripheral?.identifier == peripheral.identifier {
-        externalPeripheral = nil
-        if entityIdentifier(activeEntity) == peripheral.identifier.uuidString {
-          invalidateFlashSpaceRequest()
-          preparedEntityIds.remove(peripheral.identifier.uuidString)
-          preparingEntityIds.remove(peripheral.identifier.uuidString)
-          rcspReady = false
-          clearFileBrowseState()
-          emitConnection(activeEntity ?? externalEntity(for: peripheral, rssi: nil), status: 10)
-          emitRcspReady(activeEntity, ready: false, stage: "external_connection_event_disconnected")
-          activeEntity = nil
-        }
-      }
-    }
-  }
-
-  func centralManager(
-    _ central: CBCentralManager,
-    didDiscover peripheral: CBPeripheral,
-    advertisementData: [String: Any],
-    rssi RSSI: NSNumber
-  ) {
-    guard isX9Peripheral(peripheral) else { return }
-    let advData = advertisementData["kCBAdvDataManufacturerData"] as? Data
-    let entity = externalEntity(
-      for: peripheral,
-      rssi: RSSI,
-      advertisementData: advData
-    )
-    debugLog("external didDiscover \(debugDescription(for: entity))")
-    emitDevice(entity)
-    connectExternalX9(entity, stage: "external_discover")
-  }
-
-  func centralManager(
-    _ central: CBCentralManager,
-    didConnect peripheral: CBPeripheral
-  ) {
-    debugLog("external didConnect name=\(peripheral.name ?? "") uuid=\(peripheral.identifier.uuidString)")
-    peripheral.delegate = self
-    peripheral.discoverServices(nil)
-  }
-
-  func centralManager(
-    _ central: CBCentralManager,
-    didDisconnectPeripheral peripheral: CBPeripheral,
-    error: Error?
-  ) {
-    debugLog("external didDisconnect uuid=\(peripheral.identifier.uuidString) error=\(String(describing: error))")
-    assist?.assistDisconnectPeripheral(peripheral)
-    externalDevices.removeValue(forKey: peripheral.identifier.uuidString)
-    if externalPeripheral?.identifier == peripheral.identifier {
-      externalPeripheral = nil
-      cancelReadFile()
-      clearActiveDeleteTask()
-      invalidateFlashSpaceRequest()
-      preparedEntityIds.remove(peripheral.identifier.uuidString)
-      preparingEntityIds.remove(peripheral.identifier.uuidString)
-      rcspReady = false
-      clearFileBrowseState()
-      emitConnection(activeEntity ?? externalEntity(for: peripheral, rssi: nil), status: 10)
-      emitRcspReady(activeEntity, ready: false, stage: "external_disconnected")
-      activeEntity = nil
-    }
-  }
-
-  func centralManager(
-    _ central: CBCentralManager,
-    didFailToConnect peripheral: CBPeripheral,
-    error: Error?
-  ) {
-    debugLog("external didFailToConnect uuid=\(peripheral.identifier.uuidString) error=\(String(describing: error))")
-    externalConnectingUUID = ""
-    let entity = externalEntity(for: peripheral, rssi: nil)
-    emitConnection(entity, status: 1)
-  }
-
-  func peripheral(
-    _ peripheral: CBPeripheral,
-    didDiscoverServices error: Error?
-  ) {
-    if let error {
-      debugLog("external didDiscoverServices error=\(error)")
-      return
-    }
-    debugLog("external didDiscoverServices count=\(peripheral.services?.count ?? 0) uuid=\(peripheral.identifier.uuidString)")
-    peripheral.services?.forEach {
-      peripheral.discoverCharacteristics(nil, for: $0)
-    }
-  }
-
-  func peripheral(
-    _ peripheral: CBPeripheral,
-    didDiscoverCharacteristicsFor service: CBService,
-    error: Error?
-  ) {
-    if let error {
-      debugLog("external didDiscoverCharacteristics error=\(error)")
-      return
-    }
-    debugLog("external didDiscoverCharacteristics service=\(service.uuid.uuidString) count=\(service.characteristics?.count ?? 0) uuid=\(peripheral.identifier.uuidString)")
-    if service.characteristics?.contains(where: {
-      $0.uuid.uuidString.caseInsensitiveCompare("AE01") == .orderedSame
-    }) == true,
-       let sdkAssist = assist {
-      let maxWriteMtu = peripheral.maximumWriteValueLength(
-        for: .withoutResponse
-      )
-      sdkAssist.mMaxMtu = maxWriteMtu
-      // JL_Assist defaults to 40 bytes. Respect older iOS/device links whose
-      // negotiated write limit is smaller, while keeping the SDK default on
-      // larger links.
-      sdkAssist.mLimitMtu = min(
-        maxWriteMtu,
-        max(20, sdkAssist.mLimitMtu)
-      )
-      debugLog(
-        "external write mtu max=\(maxWriteMtu) limit=\(sdkAssist.mLimitMtu) "
-          + "uuid=\(peripheral.identifier.uuidString)"
-      )
-    }
-    assist?.assistDiscoverCharacteristics(for: service, peripheral: peripheral)
-  }
-
-  func peripheral(
-    _ peripheral: CBPeripheral,
-    didUpdateNotificationStateFor characteristic: CBCharacteristic,
-    error: Error?
-  ) {
-    if let error {
-      debugLog("external didUpdateNotificationState error=\(error)")
-      externalCentral?.cancelPeripheralConnection(peripheral)
-      return
-    }
-    debugLog("external didUpdateNotificationState characteristic=\(characteristic.uuid.uuidString) notifying=\(characteristic.isNotifying) uuid=\(peripheral.identifier.uuidString)")
-    guard externalAssistAuthEnabled else {
-      debugLog("external assist auth disabled uuid=\(peripheral.identifier.uuidString)")
-      externalPeripheral = peripheral
-      completeExternalConnection(
-        peripheral: peripheral,
-        stage: "external_assist_no_auth"
-      )
-      return
-    }
-    assist?.assistUpdate(characteristic, peripheral: peripheral) { [weak self] paired in
-      DispatchQueue.main.async {
-        guard let self else { return }
-        self.debugLog("external assist pair paired=\(paired) uuid=\(peripheral.identifier.uuidString)")
-        guard paired else {
-          self.externalConnectingUUID = ""
-          self.emit(
-            "authStatus",
-            payload: [
-              "address": peripheral.identifier.uuidString,
-              "stage": "auth_failed",
-              "ready": false,
-              "message": "设备认证失败",
-            ]
-          )
-          self.externalCentral?.cancelPeripheralConnection(peripheral)
-          return
-        }
-        self.emit(
-          "authStatus",
-          payload: [
-            "address": peripheral.identifier.uuidString,
-            "stage": "auth_success",
-            "ready": true,
-          ]
-        )
-        self.externalPeripheral = peripheral
-        self.completeExternalConnection(
-          peripheral: peripheral,
-          stage: "external_assist_paired"
-        )
-      }
-    }
-  }
-
-  func peripheral(
-    _ peripheral: CBPeripheral,
-    didUpdateValueFor characteristic: CBCharacteristic,
-    error: Error?
-  ) {
-    if let error {
-      debugLog("external didUpdateValue error=\(error)")
-      return
-    }
-    assist?.assistUpdateValue(for: characteristic)
-  }
-
-  func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-    assist?.assistDidReady()
-  }
-
-  func assistDidWrite(_ data: Data) {
-    guard let sdkAssist = assist,
-          let peripheral = sdkAssist.mRcspPeripheral,
-          let characteristic = sdkAssist.mRcspWrite else {
-      return
-    }
-    peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
   }
 
   func devAudioManager(_ manager: JLDevAudioManager, audio data: Data) {
